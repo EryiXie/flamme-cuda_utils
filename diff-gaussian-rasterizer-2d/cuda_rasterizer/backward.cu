@@ -574,6 +574,7 @@ __global__ void preprocessCUDA(
 	const float3 *dL_dmean2D,
 	glm::vec3 *dL_dmeans,
 	float *dL_dcolor, // TODO: missing here, dL_ddepth
+	float *dL_ddepth,
 	float *dL_dcov3D,
 	float *dL_dsh,
 	glm::vec3 *dL_dscale,
@@ -653,22 +654,15 @@ __global__ void preprocessCUDA(
 		dL_dtau[6 * idx + i] += dL_dt[i];
 	}
 
-	// TODO: Would it work, if we skip this part?
-	// Compute gradient update due to computing depths
-	// p_orig = m
-	// p_view = transformPoint4x3(p_orig, viewmatrix);
-	// depth = p_view.z;
-	/*float dL_dpCz = dL_ddepth[idx]; // TODO: dL_ddepth is missing, solve it.
-	dL_dmeans[idx].x += dL_dpCz * viewmatrix[2];
-	dL_dmeans[idx].y += dL_dpCz * viewmatrix[6];
-	dL_dmeans[idx].z += dL_dpCz * viewmatrix[10];
+	
+	float dL_dpCz = dL_ddepth[idx]; // TODO: dL_ddepth is missing, solve it.
 
 	for (int i = 0; i < 3; i++) {
 		float3 c_rho = dp_C_d_rho.cols[i];
 		float3 c_theta = dp_C_d_theta.cols[i];
 		dL_dtau[6 * idx + i] += dL_dpCz * c_rho.z;
 		dL_dtau[6 * idx + i + 3] += dL_dpCz * c_theta.z;
-	}*/
+	}
 
 
 	// if (idx == 9)
@@ -1000,7 +994,7 @@ __global__ void __launch_bounds__(BLOCK_X *BLOCK_Y)
 		float *__restrict__ dL_dcolors,
 		float *__restrict__ dL_dmeans3D,
 		float *__restrict__ dL_drotation,
-		float *__restrict__ dL_dtau)
+		float *__restrict__ dL_ddepths)
 {
 	// We rasterize again. Compute necessary block info.
 	auto block = cg::this_thread_block();
@@ -1037,6 +1031,8 @@ __global__ void __launch_bounds__(BLOCK_X *BLOCK_Y)
 	__shared__ float4 collected_conic_opacity[BLOCK_SIZE];
 	__shared__ float collected_colors[C * BLOCK_SIZE];
 
+	__shared__ float dL_ddepths_shared[BLOCK_SIZE];
+
 	// In the forward, we stored the final value for T, the
 	// product of all (1 - alpha) factors.
 	const float T_final = inside ? final_Ts[pix_id] : 0;
@@ -1053,11 +1049,14 @@ __global__ void __launch_bounds__(BLOCK_X *BLOCK_Y)
 
 	float accum_rec[C] = {0};
 	float dL_dpixel[C];
-	if (inside)
-		for (int i = 0; i < C; i++)
+	float dL_dpixel_depth = 0;
+	if (inside){
+		for (int i = 0; i < C; i++){
 			dL_dpixel[i] = dL_dpixels[i * H * W + pix_id];
-
-	float last_alpha = 0;
+		}
+		dL_dpixel_depth = dL_dpixel_depths[pix_id];
+	}
+		float last_alpha = 0;
 	float last_color[C] = {0};
 
 	// Gradient of pixel coordinate w.r.t. normalized
@@ -1129,6 +1128,8 @@ __global__ void __launch_bounds__(BLOCK_X *BLOCK_Y)
 				// many that were affected by this Gaussian.
 				atomicAdd(&(dL_dcolors[global_id * C + ch]), dchannel_dcolor * dL_dchannel);
 			}
+
+			dL_ddepths_shared[block.thread_rank()] = dchannel_dcolor * dL_dpixel_depth;
 			dL_dalpha *= T;
 			// Update last alpha (to be used in the next iteration)
 			last_alpha = alpha;
@@ -1153,6 +1154,18 @@ __global__ void __launch_bounds__(BLOCK_X *BLOCK_Y)
 			atomicAdd(&dL_dconic2D[global_id].y, -0.5f * gdx * d.y * dL_dG);
 			atomicAdd(&dL_dconic2D[global_id].w, -0.5f * gdy * d.y * dL_dG);
 			atomicAdd(&(dL_dopacity[global_id]), G * dL_dalpha);
+
+			render_cuda_reduce_sum(block, 
+				dL_ddepths_shared
+			);
+
+			if (block.thread_rank() == 0)
+			{
+				float dL_ddepths_acc = dL_ddepths_shared[0];
+				atomicAdd(&(dL_ddepths[pix_id]), dL_ddepths_acc);
+			}
+
+
 		}
 	}
 	// hit gaussian depth loss grad
@@ -1177,14 +1190,6 @@ __global__ void __launch_bounds__(BLOCK_X *BLOCK_Y)
 		float depth_distance = abs(hit_point.z - points_xyz_c.z);
 		const float dL_ddi = dL_dpixel_depths[pix_id]; // TODO: dL_dpixel_depth
 
-		float3 m = means3D[gaussian_id];
-		SE3 T_CW(viewmatrix);
-		mat33 R = T_CW.R().data();
-		mat33 RT = R.transpose();
-		float3 t = T_CW.t();
-		float3 p_C = T_CW * m;
-		mat33 dp_C_d_rho = mat33::identity();
-		mat33 dp_C_d_theta = -mat33::skew_symmetric(p_C);
 		if (depth_distance <= depth_threshold * scale_max && angle_distance >= normal_threshold)
 		{
 			// normal depth
@@ -1224,13 +1229,6 @@ __global__ void __launch_bounds__(BLOCK_X *BLOCK_Y)
 			atomicAdd(&(dL_drotation[gaussian_id4 + 1]), dL_dq1);
 			atomicAdd(&(dL_drotation[gaussian_id4 + 2]), dL_dq2);
 			atomicAdd(&(dL_drotation[gaussian_id4 + 3]), dL_dq3);
-
-			for (int i = 0; i < 3; i++) {
-				float3 c_rho = dp_C_d_rho.cols[i];
-				float3 c_theta = dp_C_d_theta.cols[i];
-				atomicAdd(&(dL_dtau[6 * gaussian_id + i]), dL_ddi * c_rho.z);
-				atomicAdd(&(dL_dtau[6 * gaussian_id + i + 3]), dL_ddi * c_theta.z);
-			}
 		}
 		else
 		{
@@ -1238,13 +1236,6 @@ __global__ void __launch_bounds__(BLOCK_X *BLOCK_Y)
 			atomicAdd(&(dL_dmeans3D[gaussian_id3]), dL_ddi * viewmatrix[2]);
 			atomicAdd(&(dL_dmeans3D[gaussian_id3 + 1]), dL_ddi * viewmatrix[6]);
 			atomicAdd(&(dL_dmeans3D[gaussian_id3 + 2]), dL_ddi * viewmatrix[10]);
-
-			for (int i = 0; i < 3; i++) {
-				float3 c_rho = dp_C_d_rho.cols[i];
-				float3 c_theta = dp_C_d_theta.cols[i];
-				atomicAdd(&(dL_dtau[6 * gaussian_id + i]), dL_ddi * c_rho.z);
-				atomicAdd(&(dL_dtau[6 * gaussian_id + i + 3]), dL_ddi * c_theta.z);
-			}
 		}
 	}
 }
@@ -1269,6 +1260,7 @@ void BACKWARD::preprocess(
 	const float *dL_dconic,
 	glm::vec3 *dL_dmean3D,
 	float *dL_dcolor,
+	float *dL_ddepth,
 	float *dL_dcov3D,
 	float *dL_dsh,
 	glm::vec3 *dL_dscale,
@@ -1313,6 +1305,7 @@ void BACKWARD::preprocess(
 		(float3 *)dL_dmean2D,
 		(glm::vec3 *)dL_dmean3D,
 		dL_dcolor,
+		dL_ddepth,
 		dL_dcov3D,
 		dL_dsh,
 		dL_dscale,
@@ -1419,7 +1412,7 @@ void BACKWARD::render_flat(
 	float *dL_dcolors,
 	float *dL_dmeans3D,
 	float *dL_drotation,
-	float* dL_dtau)
+	float* dL_ddepths)
 {
 	dim3 grid{tile_num, 1, 1};
 	renderCUDA_flat<NUM_CHANNELS><<<grid, block>>>(
@@ -1455,5 +1448,5 @@ void BACKWARD::render_flat(
 		dL_dcolors,
 		dL_dmeans3D,
 		dL_drotation,
-		dL_dtau);
+		dL_ddepths);
 }

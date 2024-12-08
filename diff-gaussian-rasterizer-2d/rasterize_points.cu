@@ -199,6 +199,7 @@ RasterizeGaussiansBackwardCUDA(
 	torch::Tensor dL_dmeans3D = torch::zeros({P, 3}, means3D.options());
 	torch::Tensor dL_dmeans2D = torch::zeros({P, 3}, means3D.options());
 	torch::Tensor dL_dcolors = torch::zeros({P, NUM_CHANNELS}, means3D.options());
+	torch::Tensor dL_ddepths = torch::zeros({P, 1}, means3D.options());
 	torch::Tensor dL_dconic = torch::zeros({P, 2, 2}, means3D.options());
 	torch::Tensor dL_dopacity = torch::zeros({P, 1}, means3D.options());
 	torch::Tensor dL_dcov3D = torch::zeros({P, 6}, means3D.options());
@@ -241,6 +242,7 @@ RasterizeGaussiansBackwardCUDA(
 											 dL_dconic.contiguous().data<float>(),
 											 dL_dopacity.contiguous().data<float>(),
 											 dL_dcolors.contiguous().data<float>(),
+											 dL_ddepths.contiguous().data<float>(),
 											 dL_dmeans3D.contiguous().data<float>(),
 											 dL_dcov3D.contiguous().data<float>(),
 											 dL_dsh.contiguous().data<float>(),
