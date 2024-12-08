@@ -1,0 +1,6 @@
+*.pyc
+.vscode/
+build/
+diff-gaussian-rasterizer-2d.egg-info/
+diff-gaussian-rasterizer-2d/__pycache__
+diff-gaussian-rasterizer-2d/_C_2d.*
