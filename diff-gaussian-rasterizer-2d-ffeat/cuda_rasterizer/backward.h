@@ -95,7 +95,7 @@ namespace BACKWARD
 		float* dL_dffeature, // foundation feature gradient
 		float *dL_dmeans3D,
 		float *dL_drotation,
-		float *dL_dtau,
+		float *dL_ddepths,
 		float *collected_foundation_feature);
 
 	void preprocess(
@@ -118,6 +118,7 @@ namespace BACKWARD
 		const float *dL_dconics,
 		glm::vec3 *dL_dmeans,
 		float *dL_dcolor,
+		float *dL_ddepth,
 		float *dL_dcov3D,
 		float *dL_dsh,
 		glm::vec3 *dL_dscale,

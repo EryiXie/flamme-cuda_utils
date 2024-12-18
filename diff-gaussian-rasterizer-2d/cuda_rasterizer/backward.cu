@@ -655,7 +655,7 @@ __global__ void preprocessCUDA(
 	}
 
 	
-	float dL_dpCz = dL_ddepth[idx]; // TODO: dL_ddepth is missing, solve it.
+	float dL_dpCz = dL_ddepth[idx];
 
 	for (int i = 0; i < 3; i++) {
 		float3 c_rho = dp_C_d_rho.cols[i];
@@ -1031,8 +1031,6 @@ __global__ void __launch_bounds__(BLOCK_X *BLOCK_Y)
 	__shared__ float4 collected_conic_opacity[BLOCK_SIZE];
 	__shared__ float collected_colors[C * BLOCK_SIZE];
 
-	__shared__ float dL_ddepths_shared[BLOCK_SIZE];
-
 	// In the forward, we stored the final value for T, the
 	// product of all (1 - alpha) factors.
 	const float T_final = inside ? final_Ts[pix_id] : 0;
@@ -1049,14 +1047,12 @@ __global__ void __launch_bounds__(BLOCK_X *BLOCK_Y)
 
 	float accum_rec[C] = {0};
 	float dL_dpixel[C];
-	float dL_dpixel_depth = 0;
 	if (inside){
 		for (int i = 0; i < C; i++){
 			dL_dpixel[i] = dL_dpixels[i * H * W + pix_id];
 		}
-		dL_dpixel_depth = dL_dpixel_depths[pix_id];
 	}
-		float last_alpha = 0;
+	float last_alpha = 0;
 	float last_color[C] = {0};
 
 	// Gradient of pixel coordinate w.r.t. normalized
@@ -1128,8 +1124,6 @@ __global__ void __launch_bounds__(BLOCK_X *BLOCK_Y)
 				// many that were affected by this Gaussian.
 				atomicAdd(&(dL_dcolors[global_id * C + ch]), dchannel_dcolor * dL_dchannel);
 			}
-
-			dL_ddepths_shared[block.thread_rank()] = dchannel_dcolor * dL_dpixel_depth;
 			dL_dalpha *= T;
 			// Update last alpha (to be used in the next iteration)
 			last_alpha = alpha;
@@ -1154,18 +1148,6 @@ __global__ void __launch_bounds__(BLOCK_X *BLOCK_Y)
 			atomicAdd(&dL_dconic2D[global_id].y, -0.5f * gdx * d.y * dL_dG);
 			atomicAdd(&dL_dconic2D[global_id].w, -0.5f * gdy * d.y * dL_dG);
 			atomicAdd(&(dL_dopacity[global_id]), G * dL_dalpha);
-
-			render_cuda_reduce_sum(block, 
-				dL_ddepths_shared
-			);
-
-			if (block.thread_rank() == 0)
-			{
-				float dL_ddepths_acc = dL_ddepths_shared[0];
-				atomicAdd(&(dL_ddepths[pix_id]), dL_ddepths_acc);
-			}
-
-
 		}
 	}
 	// hit gaussian depth loss grad
@@ -1189,6 +1171,8 @@ __global__ void __launch_bounds__(BLOCK_X *BLOCK_Y)
 		float angle_distance = absdot(gaussian_normal_c, pix_ray);
 		float depth_distance = abs(hit_point.z - points_xyz_c.z);
 		const float dL_ddi = dL_dpixel_depths[pix_id]; // TODO: dL_dpixel_depth
+
+		atomicAdd(&(dL_ddepths[gaussian_id]), dL_ddi);
 
 		if (depth_distance <= depth_threshold * scale_max && angle_distance >= normal_threshold)
 		{

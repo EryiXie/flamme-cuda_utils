@@ -478,6 +478,7 @@ void CudaRasterizer::Rasterizer::backward(
 	float *dL_dconic,
 	float *dL_dopacity,
 	float *dL_dcolor,
+	float* dL_ddepth,
 	float *dL_dffeature, // foundation feature gradient
 	float *dL_dmean3D,
 	float *dL_dcov3D,
@@ -546,7 +547,7 @@ void CudaRasterizer::Rasterizer::backward(
 				   dL_dffeature, // foundation feature gradient
 				   dL_dmean3D,
 				   dL_drot,
-				   dL_dtau,
+				   dL_ddepth,
 				   collected_foundation_feature
 				   ),
 			   	debug)
@@ -575,6 +576,7 @@ void CudaRasterizer::Rasterizer::backward(
 									dL_dconic,
 									(glm::vec3 *)dL_dmean3D,
 									dL_dcolor,
+									dL_ddepth,
 									dL_dcov3D,
 									dL_dsh,
 									(glm::vec3 *)dL_dscale,

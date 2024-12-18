@@ -574,6 +574,7 @@ __global__ void preprocessCUDA(
 	const float3 *dL_dmean2D,
 	glm::vec3 *dL_dmeans,
 	float *dL_dcolor, // TODO: missing here, dL_ddepth
+	float *dL_ddepth,
 	float *dL_dcov3D,
 	float *dL_dsh,
 	glm::vec3 *dL_dscale,
@@ -653,22 +654,14 @@ __global__ void preprocessCUDA(
 		dL_dtau[6 * idx + i] += dL_dt[i];
 	}
 
-	// TODO: Would it work, if we skip this part?
-	// Compute gradient update due to computing depths
-	// p_orig = m
-	// p_view = transformPoint4x3(p_orig, viewmatrix);
-	// depth = p_view.z;
-	/*float dL_dpCz = dL_ddepth[idx]; // TODO: dL_ddepth is missing, solve it.
-	dL_dmeans[idx].x += dL_dpCz * viewmatrix[2];
-	dL_dmeans[idx].y += dL_dpCz * viewmatrix[6];
-	dL_dmeans[idx].z += dL_dpCz * viewmatrix[10];
+	float dL_dpCz = dL_ddepth[idx];
 
 	for (int i = 0; i < 3; i++) {
 		float3 c_rho = dp_C_d_rho.cols[i];
 		float3 c_theta = dp_C_d_theta.cols[i];
 		dL_dtau[6 * idx + i] += dL_dpCz * c_rho.z;
 		dL_dtau[6 * idx + i + 3] += dL_dpCz * c_theta.z;
-	}*/
+	}
 
 
 	// if (idx == 9)
@@ -1029,7 +1022,7 @@ __global__ void __launch_bounds__(BLOCK_X *BLOCK_Y)
 		float *__restrict__ dL_dffeature, // foundation feature gradient
 		float *__restrict__ dL_dmeans3D,
 		float *__restrict__ dL_drotation,
-		float *__restrict__ dL_dtau,
+		float *__restrict__ dL_ddepths,
 		float *collected_foundation_feature
 	)
 {
@@ -1233,15 +1226,8 @@ __global__ void __launch_bounds__(BLOCK_X *BLOCK_Y)
 		float angle_distance = absdot(gaussian_normal_c, pix_ray);
 		float depth_distance = abs(hit_point.z - points_xyz_c.z);
 		const float dL_ddi = dL_dpixel_depths[pix_id]; // TODO: dL_dpixel_depth
-		
-		float3 m = means3D[gaussian_id];
-		SE3 T_CW(viewmatrix);
-		mat33 R = T_CW.R().data();
-		mat33 RT = R.transpose();
-		float3 t = T_CW.t();
-		float3 p_C = T_CW * m;
-		mat33 dp_C_d_rho = mat33::identity();
-		mat33 dp_C_d_theta = -mat33::skew_symmetric(p_C);
+
+		atomicAdd(&(dL_ddepths[gaussian_id]), dL_ddi);
 		
 		if (depth_distance <= depth_threshold * scale_max && angle_distance >= normal_threshold)
 		{
@@ -1282,13 +1268,6 @@ __global__ void __launch_bounds__(BLOCK_X *BLOCK_Y)
 			atomicAdd(&(dL_drotation[gaussian_id4 + 1]), dL_dq1);
 			atomicAdd(&(dL_drotation[gaussian_id4 + 2]), dL_dq2);
 			atomicAdd(&(dL_drotation[gaussian_id4 + 3]), dL_dq3);
-
-			for (int i = 0; i < 3; i++) {
-				float3 c_rho = dp_C_d_rho.cols[i];
-				float3 c_theta = dp_C_d_theta.cols[i];
-				atomicAdd(&(dL_dtau[6 * gaussian_id + i]), dL_ddi * c_rho.z);
-				atomicAdd(&(dL_dtau[6 * gaussian_id + i + 3]), dL_ddi * c_theta.z);
-			}
 		}
 		else
 		{
@@ -1296,13 +1275,6 @@ __global__ void __launch_bounds__(BLOCK_X *BLOCK_Y)
 			atomicAdd(&(dL_dmeans3D[gaussian_id3]), dL_ddi * viewmatrix[2]);
 			atomicAdd(&(dL_dmeans3D[gaussian_id3 + 1]), dL_ddi * viewmatrix[6]);
 			atomicAdd(&(dL_dmeans3D[gaussian_id3 + 2]), dL_ddi * viewmatrix[10]);
-
-			for (int i = 0; i < 3; i++) {
-				float3 c_rho = dp_C_d_rho.cols[i];
-				float3 c_theta = dp_C_d_theta.cols[i];
-				atomicAdd(&(dL_dtau[6 * gaussian_id + i]), dL_ddi * c_rho.z);
-				atomicAdd(&(dL_dtau[6 * gaussian_id + i + 3]), dL_ddi * c_theta.z);
-			}
 		}
 	}
 }
@@ -1327,6 +1299,7 @@ void BACKWARD::preprocess(
 	const float *dL_dconic,
 	glm::vec3 *dL_dmean3D,
 	float *dL_dcolor,
+	float *dL_ddepth,
 	float *dL_dcov3D,
 	float *dL_dsh,
 	glm::vec3 *dL_dscale,
@@ -1371,6 +1344,7 @@ void BACKWARD::preprocess(
 		(float3 *)dL_dmean2D,
 		(glm::vec3 *)dL_dmean3D,
 		dL_dcolor,
+		dL_ddepth,
 		dL_dcov3D,
 		dL_dsh,
 		dL_dscale,
@@ -1488,7 +1462,7 @@ void BACKWARD::render_flat(
 	float *dL_dffeature, // foundation feature gradient
 	float *dL_dmeans3D,
 	float *dL_drotation,
-	float *dL_dtau,
+	float* dL_ddepths,
 	float *collected_foundation_feature)
 {
 	dim3 grid{tile_num, 1, 1};
@@ -1528,6 +1502,6 @@ void BACKWARD::render_flat(
 		dL_dffeature, // foundation feature gradient
 		dL_dmeans3D,
 		dL_drotation,
-		dL_dtau,
+		dL_ddepths,
 		collected_foundation_feature);
 }
