@@ -5,3 +5,7 @@
 *.cubin
 *.fatbin
 log
+cuda_utils/build/
+cuda_utils/cuda_utils.egg-info/
+simple-knn/build/
+simple-knn/simple_knn.egg-info/
