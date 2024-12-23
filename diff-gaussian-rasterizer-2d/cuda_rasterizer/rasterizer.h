@@ -48,6 +48,7 @@ namespace CudaRasterizer
 			const float *projmatrix,
 			const float *cam_pos,
 			const int *render_mask,
+			const float *mask,
 			const float tan_fovx, float tan_fovy,
 			const bool prefiltered,
 			const float opaque_threshold,
@@ -65,6 +66,7 @@ namespace CudaRasterizer
 			int &tile_num,
 			int *radii = nullptr,
 			int* n_touched = nullptr,
+			float *out_mask = nullptr,
 			bool debug = false);
 
 		static void backward(

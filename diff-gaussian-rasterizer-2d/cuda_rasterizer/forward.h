@@ -107,6 +107,7 @@ namespace FORWARD
 		const float *bg_color,
 		const glm::vec3 *scales,
 		const glm::vec4 *rotations,
+		const float *mask,
 		const float opaque_threshold,
 		const float hit_depth_threshold,
 		const float hit_normal_threshold,
@@ -121,7 +122,8 @@ namespace FORWARD
 		float *out_hit_depth_weight,
 		float *out_T,
 		float *out_weight_sum,
-		int* n_touched);
+		int* n_touched,
+		float *out_mask);
 }
 
 #endif

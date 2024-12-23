@@ -661,6 +661,7 @@ __global__ void __launch_bounds__(BLOCK_X *BLOCK_Y)
 		float *__restrict__ final_T,
 		uint32_t *__restrict__ n_contrib,
 		const float *__restrict__ bg_color,
+		const float *__restrict__ mask,
 		const float opaque_threshold,
 		const float hit_depth_threshold,
 		const float hit_normal_threshold,
@@ -675,7 +676,8 @@ __global__ void __launch_bounds__(BLOCK_X *BLOCK_Y)
 		float *__restrict__ out_hit_depth_weight,
 		float *__restrict__ out_T,
 		float *__restrict__ out_weight_sum,
-		int * __restrict__ n_touched)
+		int * __restrict__ n_touched,
+		float *__restrict__ out_mask)
 {
 	// Identify current tile and associated min/max pixel range.
 	auto block = cg::this_thread_block();
@@ -733,6 +735,8 @@ __global__ void __launch_bounds__(BLOCK_X *BLOCK_Y)
 	float hit_color_weight = 0.0;
 	float hit_depth_weight = 0.0;
 	float weight_sum = 0.0f;
+	float mask_value = 0;
+
 	// Iterate over batches until all done or range is complete
 	for (int i = 0; i < rounds; i++, toDo -= BLOCK_SIZE)
 	{
@@ -834,7 +838,7 @@ __global__ void __launch_bounds__(BLOCK_X *BLOCK_Y)
 					hit_gaussian_color_id = gaussian_id;
 					hit_color_weight = color_weight_max;
 				}
-
+				mask_value += mask[collected_id[j]] * color_weight;
 				// Keep track of last range entry to update this
 				// pixel.
 				last_contributor = contributor;
@@ -857,11 +861,7 @@ __global__ void __launch_bounds__(BLOCK_X *BLOCK_Y)
 		n_contrib[pix_id] = last_contributor;
 		for (int ch = 0; ch < CHANNELS; ch++)
 			out_color[ch * H * W + pix_id] = C[ch] + T * bg_color[ch];
-		// if (weight_sum > 0)
-		// {
-		// 	for (int ch = 0; ch < CHANNELS; ch++)
-		// 		out_color[ch * H * W + pix_id] = C[ch] / weight_sum;
-		// }
+		out_mask[pix_id] = mask_value;
 		out_depth[pix_id] = depth_;
 		out_hit_depth[pix_id] = hit_gaussian_id;
 		out_hit_color[pix_id] = hit_gaussian_color_id;
@@ -959,6 +959,7 @@ void FORWARD::render_flat(
 	const float *bg_color,
 	const glm::vec3 *scales,
 	const glm::vec4 *rotations,
+	const float *mask,
 	const float opaque_threshold,
 	const float hit_depth_threshold,
 	const float hit_normal_threshold,
@@ -973,7 +974,8 @@ void FORWARD::render_flat(
 	float *out_hit_depth_weight,
 	float *out_T,
 	float *out_weight_sum,
-	int* n_touched)
+	int* n_touched,
+	float *out_mask)
 {
 	dim3 grid{tile_num, 1, 1};
 	renderCUDA_withMask<NUM_CHANNELS><<<grid, block>>>(
@@ -995,6 +997,7 @@ void FORWARD::render_flat(
 		final_T,
 		n_contrib,
 		bg_color,
+		mask,
 		opaque_threshold,
 		hit_depth_threshold,
 		hit_normal_threshold,
@@ -1009,7 +1012,8 @@ void FORWARD::render_flat(
 		out_hit_depth_weight,
 		out_T,
 		out_weight_sum,
-		n_touched);
+		n_touched,
+		out_mask);
 }
 
 void FORWARD::preprocess(int P, int D, int M,

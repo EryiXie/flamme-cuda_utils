@@ -37,6 +37,7 @@ def rasterize_gaussians(
     theta, # Camera pose rotation
     rho, # Camera pose translation
     tile_mask,
+    mask,
     raster_settings,
 ):
     return _RasterizeGaussians.apply(
@@ -49,6 +50,7 @@ def rasterize_gaussians(
         cov3Ds_precomp,
         theta, # Camera pose rotation
         rho, # Camera pose translation
+        mask,
         tile_mask,
         raster_settings,
     )
@@ -68,6 +70,7 @@ class _RasterizeGaussians(torch.autograd.Function):
         cov3Ds_precomp,
         theta, # Camera pose rotation
         rho, # Camera pose translation
+        mask,
         tile_mask,
         raster_settings,
     ):
@@ -100,6 +103,7 @@ class _RasterizeGaussians(torch.autograd.Function):
             raster_settings.normal_threshold,
             raster_settings.T_threshold,
             raster_settings.prefiltered,
+            mask,
             raster_settings.debug,
         )
         # Invoke C++/CUDA rasterizer
@@ -123,6 +127,7 @@ class _RasterizeGaussians(torch.autograd.Function):
                     binningBuffer,
                     imgBuffer,
                     n_touched, # TODO: opacity is not used in the forward pass, what's the impact of this?
+                    mask_map,
                     tile_indices,
                 ) = _C_2d.rasterize_gaussians(*args) 
             except Exception as ex:
@@ -147,6 +152,7 @@ class _RasterizeGaussians(torch.autograd.Function):
                 binningBuffer,
                 imgBuffer,
                 n_touched,
+                mask_map,
                 tile_indices,
             ) = _C_2d.rasterize_gaussians(*args)
 
@@ -177,7 +183,8 @@ class _RasterizeGaussians(torch.autograd.Function):
             hit_depth_weight,
             T_map,
             radii,
-            n_touched # TODO: opacity is not used in the forward pass, what's the impact of this?
+            n_touched, # TODO: opacity is not used in the forward pass, what's the impact of this?
+            mask_map
         )
 
     @staticmethod
@@ -191,7 +198,8 @@ class _RasterizeGaussians(torch.autograd.Function):
         grad_hit_depth_weight,
         grad_T_map,
         _,
-        grad_n_touched
+        grad_n_touched,
+        grad_mask_map,
     ):
         # Restore necessary values from context
         num_rendered = ctx.num_rendered
@@ -299,6 +307,7 @@ class _RasterizeGaussians(torch.autograd.Function):
             grad_rho, # Added gradient for camera pose
             None,
             None,
+            None,
         ) #TODO: None, None for tile_mask and raster_settings, grads order is the samen as forward input order  @staticmethod def forward(...)
         return grads
 
@@ -354,6 +363,7 @@ class GaussianRasterizer(nn.Module):
         rho=None, # Camera pose translation
         tile_mask=None,
         normal_w=None,
+        mask=None,
     ):
         raster_settings = self.raster_settings
 
@@ -386,6 +396,8 @@ class GaussianRasterizer(nn.Module):
             theta = torch.Tensor([])
         if rho is None:
             rho = torch.Tensor([])
+        if mask is None:
+            mask = torch.Tensor([])
 
         # Invoke C++/CUDA rasterization routine
         return rasterize_gaussians(
@@ -399,5 +411,6 @@ class GaussianRasterizer(nn.Module):
             theta, # Camera pose rotation
             rho, # Camera pose translation
             tile_mask,
+            mask,
             raster_settings,
         )

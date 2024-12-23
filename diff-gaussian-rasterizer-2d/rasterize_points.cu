@@ -34,7 +34,7 @@ std::function<char *(size_t N)> resizeFunctional(torch::Tensor &t)
 	return lambda;
 }
 
-std::tuple<int, int, torch::Tensor, torch::Tensor, torch::Tensor, torch::Tensor, torch::Tensor, torch::Tensor, torch::Tensor, torch::Tensor, torch::Tensor, torch::Tensor, torch::Tensor, torch::Tensor, torch::Tensor>
+std::tuple<int, int, torch::Tensor, torch::Tensor, torch::Tensor, torch::Tensor,torch::Tensor, torch::Tensor, torch::Tensor, torch::Tensor, torch::Tensor, torch::Tensor, torch::Tensor, torch::Tensor, torch::Tensor, torch::Tensor>
 RasterizeGaussiansCUDA(
 	const torch::Tensor &background,
 	const torch::Tensor &means3D,
@@ -63,6 +63,7 @@ RasterizeGaussiansCUDA(
 	const float hit_normal_threshold,
 	const float T_threshold,
 	const bool prefiltered,
+	const torch::Tensor &mask,
 	const bool debug)
 {
 	if (means3D.ndimension() != 2 || means3D.size(1) != 3)
@@ -85,6 +86,7 @@ RasterizeGaussiansCUDA(
 	torch::Tensor out_T = torch::full({1, H, W}, 1, float_opts);
 	torch::Tensor out_hit_color_weight = torch::full({1, H, W}, 0, float_opts);
 	torch::Tensor out_hit_depth_weight = torch::full({1, H, W}, 0, float_opts);
+	torch::Tensor out_mask = torch::full({1, H, W}, 1, float_opts);
 	torch::Tensor radii = torch::full({P}, 0, means3D.options().dtype(torch::kInt32));
 	torch::Tensor n_touched = torch::full({P}, 0, means3D.options().dtype(torch::kInt32));
 
@@ -129,6 +131,7 @@ RasterizeGaussiansCUDA(
 			projmatrix.contiguous().data<float>(),
 			campos.contiguous().data<float>(),
 			render_mask.contiguous().data<int>(),
+			mask.contiguous().data<float>(),
 			tan_fovx,
 			tan_fovy,
 			prefiltered,
@@ -146,12 +149,13 @@ RasterizeGaussiansCUDA(
 			out_T.contiguous().data<float>(),
 			tile_num,
 			radii.contiguous().data<int>(),
-			n_touched.contiguous().data<int>(), //TODO: add this also to forward.cu 
+			n_touched.contiguous().data<int>(), //TODO: add this also to forward.cu
+			out_mask.contiguous().data<float>(),
 			debug);
 	}
 	return std::make_tuple(rendered, tile_num, out_color, out_depth,
 						   out_hit_color, out_hit_depth, out_hit_color_weight, out_hit_depth_weight,
-						   out_T, radii, geomBuffer, binningBuffer, imgBuffer, n_touched, tile_indices);
+						   out_T, radii, geomBuffer, binningBuffer, imgBuffer, n_touched, out_mask, tile_indices);
 }
 
 std::tuple<torch::Tensor, torch::Tensor, torch::Tensor, torch::Tensor, torch::Tensor, torch::Tensor, torch::Tensor, torch::Tensor, torch::Tensor>

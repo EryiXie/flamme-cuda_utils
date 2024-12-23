@@ -223,6 +223,7 @@ int CudaRasterizer::Rasterizer::forward(
 	const float *projmatrix,
 	const float *cam_pos,
 	const int *tile_mask,
+	const float *mask,
 	const float tan_fovx, float tan_fovy,
 	const bool prefiltered,
 	const float opaque_threshold,
@@ -239,7 +240,8 @@ int CudaRasterizer::Rasterizer::forward(
 	float *out_T,
 	int &tile_num,
 	int *radii,
-	int* n_touched,
+	int *n_touched,
+	float *out_mask,
 	bool debug)
 {
 	const float focal_y = height / (2.0f * tan_fovy);
@@ -420,6 +422,7 @@ int CudaRasterizer::Rasterizer::forward(
 				   background,
 				   (glm::vec3 *)scales,
 				   (glm::vec4 *)rotations,
+				   mask,
 				   opaque_threshold,
 				   hit_depth_threshold,
 				   hit_normal_threshold,
@@ -432,9 +435,10 @@ int CudaRasterizer::Rasterizer::forward(
 				   out_hit_color,
 				   out_hit_color_weight,
 				   out_hit_depth_weight,
-				   out_T, // TODO: what is this out_T?
+				   out_T, 
 				   imgState.weight_sum,
-				   n_touched), // TODO: add no_touched at the end
+				   n_touched,
+				   out_mask),
 			   debug)
 	return num_rendered;
 }
